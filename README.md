@@ -6,6 +6,9 @@ Finds players without a Free Company tag on your world and lets you send each of
 
 - **Player Search results**: run searches in the game's own *Social > Player Search* window. Every result without an FC tag is added to the plugin's list. The game returns at most 200 results per search, so vary area, job, level range, and language to cover more of your world.
 - **Nearby players**: players around you without an FC tag are added automatically (toggleable).
+- **Refresh**: repeats your last Player Search with the same filters (at most once every 10 s) and rescans nearby players.
+- **Level and status**: the list shows New Adventurer, Returner, and Mentor status. Player Search doesn't report level, so level is shown only for players who have been near you.
+- Search results the game marks as from another server are skipped, because the game doesn't send their FC tag.
 - **Tells**: each row has a **Tell** button that sends one `/tell Name@World <your message>`. `{name}` and `{first}` in the template are replaced. A cooldown (minimum 3 s) applies between tells, and messaged players are remembered so nobody is messaged twice.
 
 There is deliberately no "message everyone" button: automated mass tells break Dalamud's plugin rules and can get an account flagged for spam.

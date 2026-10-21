@@ -21,6 +21,9 @@ public sealed class PlayerEntry
     public required ushort HomeWorldId { get; init; }
     public required string HomeWorld { get; init; }
     public string Job { get; set; } = "";
+    /// <summary>0 = unknown. Player Search results don't include level; only nearby players do.</summary>
+    public byte Level { get; set; }
+    public string Status { get; set; } = "";
     public string Source { get; set; } = "";
     public DateTime LastSeen { get; set; }
     public string Key => $"{Name}@{HomeWorld}";
@@ -74,15 +77,62 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
     public ushort? LocalHomeWorldId => (ushort?)ObjectTable.LocalPlayer?.HomeWorld.RowId;
 
+    /// <summary>Statuses worth showing, as OnlineStatus sheet row ids (= bit index in Player Search status flags).</summary>
+    private static readonly uint[] ShownStatuses =
+    [
+        32, // New Adventurer
+        44, // Trial Adventurer
+        31, // Returner
+        27, // Mentor
+        28, // PvE (battle) mentor
+        11, // Battle mentor
+        29, // Trade mentor
+        30, // PvP mentor
+    ];
+
+    /// <summary>Entries the game's Player Search currently holds, and how many of them have no FC.</summary>
+    public int SearchResultCount { get; private set; }
+    public int SearchWithoutFcCount { get; private set; }
+    public DateTime LastSearchRequest { get; private set; } = DateTime.MinValue;
+    public static readonly TimeSpan SearchRequestCooldown = TimeSpan.FromSeconds(10);
+
     private void OnFrameworkUpdate(IFramework framework)
     {
         if (DateTime.Now - lastScan < TimeSpan.FromSeconds(1))
             return;
-        lastScan = DateTime.Now;
+        ScanNow();
+    }
 
+    public void ScanNow()
+    {
+        lastScan = DateTime.Now;
         ScanPlayerSearchResults();
         if (Config.CollectNearby)
             ScanNearbyPlayers();
+    }
+
+    /// <summary>
+    /// Re-sends the last search made in the game's Player Search window (same filters), then rescans.
+    /// Returns an error when no search has been made yet or when it was re-sent too recently.
+    /// </summary>
+    public string? RefreshSearch()
+    {
+        var wait = LastSearchRequest + SearchRequestCooldown - DateTime.Now;
+        if (wait > TimeSpan.Zero)
+            return $"Wait {wait.TotalSeconds:0}s before refreshing the search again.";
+
+        var proxy = InfoProxySearch.Instance();
+        // LevelMax is filled by the game once a search has been made; without one the filters are empty.
+        if (proxy == null || proxy->LevelMax == 0)
+            return "Run a search in Social > Player Search first; Refresh repeats it.";
+
+        LastSearchRequest = DateTime.Now;
+        Framework.RunOnFrameworkThread(() =>
+        {
+            InfoProxySearch.Instance()->RequestData();
+            ScanNow();
+        });
+        return null;
     }
 
     /// <summary>Reads whatever the game's own Social > Player Search window currently holds.</summary>
@@ -93,13 +143,24 @@ public sealed unsafe class Plugin : IDalamudPlugin
             return;
 
         var count = proxy->GetEntryCount();
+        var withoutFc = 0;
         for (uint i = 0; i < count; i++)
         {
             var entry = proxy->GetEntry(i);
-            if (entry == null || entry->ContentId == 0)
+            // ContentId is often 0 in search results, so don't use it to validate entries.
+            // IsOtherServer entries carry no FC data, so an empty tag there means "unknown", not "no FC".
+            if (entry == null || entry->IsOtherServer)
                 continue;
-            Observe(entry->NameString, entry->HomeWorld, entry->FCTagString, entry->Job, "Player Search");
+
+            var world = entry->HomeWorld != 0 ? entry->HomeWorld : entry->CurrentWorld;
+            var state = (ulong)entry->State;
+            var statuses = ShownStatuses.Where(id => (state & (1ul << (int)id)) != 0);
+            if (Observe(entry->NameString, world, entry->FCTagString, entry->Job, 0, statuses, "Player Search"))
+                withoutFc++;
         }
+
+        SearchResultCount = (int)count;
+        SearchWithoutFcCount = withoutFc;
     }
 
     private void ScanNearbyPlayers()
@@ -109,25 +170,27 @@ public sealed unsafe class Plugin : IDalamudPlugin
         {
             if (self != null && pc.Address == self.Address)
                 continue;
-            Observe(pc.Name.TextValue, (ushort)pc.HomeWorld.RowId, pc.CompanyTag.TextValue, (byte)pc.ClassJob.RowId, "Nearby");
+            var statuses = ShownStatuses.Where(id => id == pc.OnlineStatus.RowId);
+            Observe(pc.Name.TextValue, (ushort)pc.HomeWorld.RowId, pc.CompanyTag.TextValue, (byte)pc.ClassJob.RowId, pc.Level, statuses, "Nearby");
         }
     }
 
-    private void Observe(string name, ushort homeWorldId, string fcTag, byte jobId, string source)
+    /// <summary>Adds or updates a player without an FC. Returns true when the player was kept (has no FC).</summary>
+    private bool Observe(string name, ushort homeWorldId, string fcTag, byte jobId, byte level, IEnumerable<uint> statusIds, string source)
     {
         if (string.IsNullOrWhiteSpace(name) || homeWorldId == 0)
-            return;
+            return false;
 
         var world = DataManager.GetExcelSheet<World>().GetRowOrDefault(homeWorldId)?.Name.ExtractText() ?? "";
         if (world.Length == 0)
-            return;
+            return false;
 
         var key = $"{name}@{world}";
         if (!string.IsNullOrWhiteSpace(fcTag))
         {
             // They have (or just joined) an FC: drop them from the list.
             Roster.Remove(key);
-            return;
+            return false;
         }
 
         if (!Roster.TryGetValue(key, out var p))
@@ -137,8 +200,16 @@ public sealed unsafe class Plugin : IDalamudPlugin
         }
 
         p.Job = DataManager.GetExcelSheet<ClassJob>().GetRowOrDefault(jobId)?.Abbreviation.ExtractText() ?? "";
+        if (level > 0)
+            p.Level = level;
+        var statusSheet = DataManager.GetExcelSheet<OnlineStatus>();
+        p.Status = string.Join(", ", statusIds
+            .Select(id => statusSheet.GetRowOrDefault(id)?.Name.ExtractText() ?? "")
+            .Where(s => s.Length > 0)
+            .Distinct());
         p.Source = source;
         p.LastSeen = DateTime.Now;
+        return true;
     }
 
     public TimeSpan CooldownRemaining

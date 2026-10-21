@@ -52,8 +52,16 @@ public sealed class MainWindow : Window
         var nearby = config.CollectNearby;
         if (ImGui.Checkbox("Collect nearby players", ref nearby)) { config.CollectNearby = nearby; plugin.SaveConfig(); }
 
+        if (ImGui.Button("Refresh"))
+        {
+            plugin.ScanNow();
+            status = plugin.RefreshSearch() ?? "Search sent again; new results are added as they arrive.";
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Repeats your last Social > Player Search (same filters) and rescans nearby players.");
+        ImGui.SameLine();
         ImGui.SetNextItemWidth(220);
-        ImGui.InputTextWithHint("##filter", "Filter by name or job", ref filter, 64);
+        ImGui.InputTextWithHint("##filter", "Filter: name, job or status", ref filter, 64);
         ImGui.SameLine();
         if (ImGui.Button("Clear list"))
             plugin.Roster.Clear();
@@ -70,12 +78,15 @@ public sealed class MainWindow : Window
             .Where(p => !config.HideMessaged || !config.Messaged.Contains(p.Key))
             .Where(p => filter.Length == 0
                         || p.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)
-                        || p.Job.Contains(filter, StringComparison.OrdinalIgnoreCase))
+                        || p.Job.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                        || p.Status.Contains(filter, StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(p => p.LastSeen)
             .ToList();
 
         var cd = plugin.CooldownRemaining;
-        ImGui.Text($"{rows.Count} players without FC");
+        ImGui.Text($"{rows.Count} players shown ({plugin.Roster.Count} collected).");
+        ImGui.SameLine();
+        ImGui.TextDisabled($"Current Player Search: {plugin.SearchResultCount} results, {plugin.SearchWithoutFcCount} without FC.");
         if (cd > TimeSpan.Zero)
         {
             ImGui.SameLine();
@@ -84,13 +95,15 @@ public sealed class MainWindow : Window
         if (status.Length > 0)
             ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), status);
 
-        if (!ImGui.BeginTable("##roster", 6, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable))
+        if (!ImGui.BeginTable("##roster", 8, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable))
             return;
 
         ImGui.TableSetupScrollFreeze(0, 1);
         ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.WidthStretch);
         ImGui.TableSetupColumn("World", ImGuiTableColumnFlags.WidthFixed, 90);
         ImGui.TableSetupColumn("Job", ImGuiTableColumnFlags.WidthFixed, 40);
+        ImGui.TableSetupColumn("Lv", ImGuiTableColumnFlags.WidthFixed, 30);
+        ImGui.TableSetupColumn("Status", ImGuiTableColumnFlags.WidthFixed, 130);
         ImGui.TableSetupColumn("Source", ImGuiTableColumnFlags.WidthFixed, 90);
         ImGui.TableSetupColumn("Seen", ImGuiTableColumnFlags.WidthFixed, 60);
         ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 70);
@@ -102,6 +115,12 @@ public sealed class MainWindow : Window
             ImGui.TableNextColumn(); ImGui.Text(p.Name);
             ImGui.TableNextColumn(); ImGui.Text(p.HomeWorld);
             ImGui.TableNextColumn(); ImGui.Text(p.Job);
+            ImGui.TableNextColumn();
+            if (p.Level > 0) ImGui.Text(p.Level.ToString());
+            else ImGui.TextDisabled("?");
+            if (p.Level == 0 && ImGui.IsItemHovered())
+                ImGui.SetTooltip("Player Search doesn't report level. It fills in once this player is near you.");
+            ImGui.TableNextColumn(); ImGui.Text(p.Status);
             ImGui.TableNextColumn(); ImGui.Text(p.Source);
             ImGui.TableNextColumn(); ImGui.Text(p.LastSeen.ToString("HH:mm"));
             ImGui.TableNextColumn();
