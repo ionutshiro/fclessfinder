@@ -3,7 +3,7 @@
     "Author": "ionutshiro",
     "Name": "FC-less Finder",
     "InternalName": "FcLessFinder",
-    "AssemblyVersion": "0.2.0.0",
+    "AssemblyVersion": "0.3.0.0",
     "Description": "Collects players without an FC tag from the in-game Player Search results and from players around you, then lets you send each one a templated /tell with a single click.",
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/ionutshiro/fclessfinder",
@@ -20,11 +20,11 @@
     "LoadPriority": 0,
     "Punchline": "Find players without a Free Company and send them a tell.",
     "AcceptsFeedback": true,
-    "DownloadLinkInstall": "https://github.com/ionutshiro/fclessfinder/releases/download/v0.2.0.0/latest.zip",
-    "DownloadLinkUpdate": "https://github.com/ionutshiro/fclessfinder/releases/download/v0.2.0.0/latest.zip",
-    "DownloadLinkTesting": "https://github.com/ionutshiro/fclessfinder/releases/download/v0.2.0.0/latest.zip",
+    "DownloadLinkInstall": "https://github.com/ionutshiro/fclessfinder/releases/download/v0.3.0.0/latest.zip",
+    "DownloadLinkUpdate": "https://github.com/ionutshiro/fclessfinder/releases/download/v0.3.0.0/latest.zip",
+    "DownloadLinkTesting": "https://github.com/ionutshiro/fclessfinder/releases/download/v0.3.0.0/latest.zip",
     "IsHide": false,
     "IsTestingExclusive": false,
-    "LastUpdate": 1792575095
+    "LastUpdate": 1792578804
   }
 ]

@@ -2,8 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using Dalamud.Game.Chat;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.Command;
+using Dalamud.Game.Text;
+using Dalamud.Game.Text.SeStringHandling.Payloads;
 using Dalamud.Interface.Windowing;
 using Dalamud.IoC;
 using Dalamud.Plugin;
@@ -24,6 +27,9 @@ public sealed class PlayerEntry
     /// <summary>0 = unknown. Player Search results don't include level; only nearby players do.</summary>
     public byte Level { get; set; }
     public string Status { get; set; } = "";
+    public bool IsNewOrReturning { get; set; }
+    /// <summary>"Busy" or "In duty" when last seen, otherwise empty.</summary>
+    public string Unavailable { get; set; } = "";
     public string Source { get; set; } = "";
     public DateTime LastSeen { get; set; }
     public string Key => $"{Name}@{HomeWorld}";
@@ -39,6 +45,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
     [PluginService] internal static IObjectTable ObjectTable { get; private set; } = null!;
     [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
+    [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
 
     public Configuration Config { get; }
@@ -52,6 +59,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
     public Plugin()
     {
         Config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        Config.Migrate();
         mainWindow = new MainWindow(this);
         windowSystem.AddWindow(mainWindow);
 
@@ -62,10 +70,12 @@ public sealed unsafe class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.Draw += windowSystem.Draw;
         PluginInterface.UiBuilder.OpenMainUi += mainWindow.Toggle;
         Framework.Update += OnFrameworkUpdate;
+        ChatGui.ChatMessage += OnChatMessage;
     }
 
     public void Dispose()
     {
+        ChatGui.ChatMessage -= OnChatMessage;
         Framework.Update -= OnFrameworkUpdate;
         PluginInterface.UiBuilder.Draw -= windowSystem.Draw;
         PluginInterface.UiBuilder.OpenMainUi -= mainWindow.Toggle;
@@ -89,6 +99,10 @@ public sealed unsafe class Plugin : IDalamudPlugin
         29, // Trade mentor
         30, // PvP mentor
     ];
+
+    private static readonly uint[] NewOrReturningStatuses = [32, 44, 31];
+    private const uint BusyStatus = 12;
+    private const uint InDutyStatus = 43;
 
     /// <summary>Entries the game's Player Search currently holds, and how many of them have no FC.</summary>
     public int SearchResultCount { get; private set; }
@@ -154,8 +168,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
             var world = entry->HomeWorld != 0 ? entry->HomeWorld : entry->CurrentWorld;
             var state = (ulong)entry->State;
-            var statuses = ShownStatuses.Where(id => (state & (1ul << (int)id)) != 0);
-            if (Observe(entry->NameString, world, entry->FCTagString, entry->Job, 0, statuses, "Player Search"))
+            if (Observe(entry->NameString, world, entry->FCTagString, entry->Job, 0, id => (state & (1ul << (int)id)) != 0, "Player Search"))
                 withoutFc++;
         }
 
@@ -170,13 +183,14 @@ public sealed unsafe class Plugin : IDalamudPlugin
         {
             if (self != null && pc.Address == self.Address)
                 continue;
-            var statuses = ShownStatuses.Where(id => id == pc.OnlineStatus.RowId);
-            Observe(pc.Name.TextValue, (ushort)pc.HomeWorld.RowId, pc.CompanyTag.TextValue, (byte)pc.ClassJob.RowId, pc.Level, statuses, "Nearby");
+            // Nearby characters carry a single online status (the icon above their head).
+            var status = pc.OnlineStatus.RowId;
+            Observe(pc.Name.TextValue, (ushort)pc.HomeWorld.RowId, pc.CompanyTag.TextValue, (byte)pc.ClassJob.RowId, pc.Level, id => id == status, "Nearby");
         }
     }
 
     /// <summary>Adds or updates a player without an FC. Returns true when the player was kept (has no FC).</summary>
-    private bool Observe(string name, ushort homeWorldId, string fcTag, byte jobId, byte level, IEnumerable<uint> statusIds, string source)
+    private bool Observe(string name, ushort homeWorldId, string fcTag, byte jobId, byte level, Func<uint, bool> hasStatus, string source)
     {
         if (string.IsNullOrWhiteSpace(name) || homeWorldId == 0)
             return false;
@@ -202,14 +216,50 @@ public sealed unsafe class Plugin : IDalamudPlugin
         p.Job = DataManager.GetExcelSheet<ClassJob>().GetRowOrDefault(jobId)?.Abbreviation.ExtractText() ?? "";
         if (level > 0)
             p.Level = level;
-        var statusSheet = DataManager.GetExcelSheet<OnlineStatus>();
-        p.Status = string.Join(", ", statusIds
-            .Select(id => statusSheet.GetRowOrDefault(id)?.Name.ExtractText() ?? "")
-            .Where(s => s.Length > 0)
-            .Distinct());
+        // Player Search reports every status; a nearby character shows only one icon,
+        // so a nearby sighting without a shown status keeps what Player Search found.
+        if (source != "Nearby" || ShownStatuses.Any(hasStatus))
+        {
+            var statusSheet = DataManager.GetExcelSheet<OnlineStatus>();
+            p.Status = string.Join(", ", ShownStatuses.Where(hasStatus)
+                .Select(id => statusSheet.GetRowOrDefault(id)?.Name.ExtractText() ?? "")
+                .Where(s => s.Length > 0)
+                .Distinct());
+            p.IsNewOrReturning = NewOrReturningStatuses.Any(hasStatus);
+        }
+
+        p.Unavailable = hasStatus(InDutyStatus) ? "In duty" : hasStatus(BusyStatus) ? "Busy" : "";
         p.Source = source;
         p.LastSeen = DateTime.Now;
         return true;
+    }
+
+    /// <summary>Marks a messaged player as "Replied" when they send you a tell.</summary>
+    private void OnChatMessage(IHandleableChatMessage message)
+    {
+        if (message.LogKind != XivChatType.TellIncoming)
+            return;
+
+        string? key = null;
+        if (message.Sender.Payloads.OfType<PlayerPayload>().FirstOrDefault() is { } player)
+        {
+            key = $"{player.PlayerName}@{player.World.ValueNullable?.Name.ExtractText()}";
+        }
+        else
+        {
+            // No player link in the sender: match by name alone if exactly one messaged player has it.
+            var name = message.Sender.TextValue.Trim();
+            var matches = Config.Messaged.Where(k => k.StartsWith(name + "@", StringComparison.OrdinalIgnoreCase)).Take(2).ToList();
+            if (matches.Count == 1)
+                key = matches[0];
+        }
+
+        if (key == null || !Config.Messaged.Contains(key) || Config.Replied.ContainsKey(key))
+            return;
+
+        Config.Replied[key] = DateTime.Now;
+        SaveConfig();
+        Log.Information($"{key} replied");
     }
 
     public TimeSpan CooldownRemaining
@@ -221,9 +271,16 @@ public sealed unsafe class Plugin : IDalamudPlugin
         }
     }
 
+    /// <summary>Non-empty templates, in order. Tells rotate through them.</summary>
+    private List<string> UsableTemplates => Config.MessageTemplates.Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
+
+    /// <summary>Builds the tell the next click would send (uses the current template in the rotation).</summary>
     public string BuildMessage(PlayerEntry p)
     {
-        var text = Config.MessageTemplate
+        var templates = UsableTemplates;
+        if (templates.Count == 0)
+            return "";
+        var text = templates[Config.NextTemplate % templates.Count]
             .Replace("{name}", p.Name, StringComparison.OrdinalIgnoreCase)
             .Replace("{first}", p.Name.Split(' ')[0], StringComparison.OrdinalIgnoreCase);
         // Chat input is single-line; drop control characters (newlines, tabs, etc.).
@@ -254,8 +311,15 @@ public sealed unsafe class Plugin : IDalamudPlugin
             return false;
         }
 
+        if (p.Unavailable.Length > 0)
+        {
+            error = $"{p.Name} was {p.Unavailable.ToLowerInvariant()} when last seen.";
+            return false;
+        }
+
         LastTellSent = DateTime.Now;
         Config.Messaged.Add(p.Key);
+        Config.NextTemplate = (Config.NextTemplate + 1) % UsableTemplates.Count;
         SaveConfig();
 
         Framework.RunOnFrameworkThread(() =>

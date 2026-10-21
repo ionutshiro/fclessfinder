@@ -8,6 +8,7 @@ namespace FcLessFinder;
 
 public sealed class MainWindow : Window
 {
+    private static readonly Vector4 Green = new(0.4f, 0.9f, 0.4f, 1f);
     private readonly Plugin plugin;
     private string filter = "";
     private string status = "";
@@ -26,14 +27,35 @@ public sealed class MainWindow : Window
                           + "Every result without an FC tag is added here. Players around you are added too.");
         ImGui.Separator();
 
-        var template = config.MessageTemplate;
-        ImGui.SetNextItemWidth(-1);
-        if (ImGui.InputText("##template", ref template, 400))
+        ImGui.TextDisabled("Messages: each tell uses the next one in turn. Placeholders: {name}, {first}");
+        var removeAt = -1;
+        for (var i = 0; i < config.MessageTemplates.Count; i++)
         {
-            config.MessageTemplate = template;
+            ImGui.PushID(i);
+            var template = config.MessageTemplates[i];
+            ImGui.SetNextItemWidth(-30);
+            if (ImGui.InputText("##template", ref template, 400))
+            {
+                config.MessageTemplates[i] = template;
+                plugin.SaveConfig();
+            }
+            ImGui.SameLine();
+            if (config.MessageTemplates.Count == 1) ImGui.BeginDisabled();
+            if (ImGui.Button("X"))
+                removeAt = i;
+            if (config.MessageTemplates.Count == 1) ImGui.EndDisabled();
+            ImGui.PopID();
+        }
+        if (removeAt >= 0)
+        {
+            config.MessageTemplates.RemoveAt(removeAt);
             plugin.SaveConfig();
         }
-        ImGui.TextDisabled("Tell text. Placeholders: {name}, {first}");
+        if (config.MessageTemplates.Count < 5 && ImGui.Button("Add message"))
+        {
+            config.MessageTemplates.Add("");
+            plugin.SaveConfig();
+        }
 
         var cooldown = config.CooldownSeconds;
         ImGui.SetNextItemWidth(160);
@@ -52,6 +74,14 @@ public sealed class MainWindow : Window
         var nearby = config.CollectNearby;
         if (ImGui.Checkbox("Collect nearby players", ref nearby)) { config.CollectNearby = nearby; plugin.SaveConfig(); }
 
+        var newFirst = config.NewAndReturningFirst;
+        if (ImGui.Checkbox("New/returning players first", ref newFirst)) { config.NewAndReturningFirst = newFirst; plugin.SaveConfig(); }
+        ImGui.SameLine();
+        var onlyNew = config.OnlyNewAndReturning;
+        if (ImGui.Checkbox("Only new/returning", ref onlyNew)) { config.OnlyNewAndReturning = onlyNew; plugin.SaveConfig(); }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("New Adventurers, Trial Adventurers and Returners.");
+
         if (ImGui.Button("Refresh"))
         {
             plugin.ScanNow();
@@ -69,18 +99,22 @@ public sealed class MainWindow : Window
         if (ImGui.Button("Forget messaged history"))
         {
             config.Messaged.Clear();
+            config.Replied.Clear();
             plugin.SaveConfig();
         }
 
         var homeWorld = plugin.LocalHomeWorldId;
         var rows = plugin.Roster.Values
             .Where(p => !config.OnlyMyHomeWorld || homeWorld == null || p.HomeWorldId == homeWorld)
-            .Where(p => !config.HideMessaged || !config.Messaged.Contains(p.Key))
+            // Players who replied stay visible even when messaged players are hidden.
+            .Where(p => !config.HideMessaged || !config.Messaged.Contains(p.Key) || config.Replied.ContainsKey(p.Key))
+            .Where(p => !config.OnlyNewAndReturning || p.IsNewOrReturning)
             .Where(p => filter.Length == 0
                         || p.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)
                         || p.Job.Contains(filter, StringComparison.OrdinalIgnoreCase)
                         || p.Status.Contains(filter, StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(p => p.LastSeen)
+            .OrderByDescending(p => config.NewAndReturningFirst && p.IsNewOrReturning)
+            .ThenByDescending(p => p.LastSeen)
             .ToList();
 
         var cd = plugin.CooldownRemaining;
@@ -94,6 +128,12 @@ public sealed class MainWindow : Window
         }
         if (status.Length > 0)
             ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), status);
+
+        if (config.Replied.Count > 0 && ImGui.CollapsingHeader($"Replies ({config.Replied.Count})###replies"))
+        {
+            foreach (var (key, when) in config.Replied.OrderByDescending(r => r.Value))
+                ImGui.TextColored(Green, $"{key}  {when:dd MMM HH:mm}");
+        }
 
         if (!ImGui.BeginTable("##roster", 8, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable))
             return;
@@ -126,18 +166,25 @@ public sealed class MainWindow : Window
             ImGui.TableNextColumn();
 
             ImGui.PushID(p.Key);
-            if (config.Messaged.Contains(p.Key))
+            if (config.Replied.ContainsKey(p.Key))
+            {
+                ImGui.TextColored(Green, "Replied");
+            }
+            else if (config.Messaged.Contains(p.Key))
             {
                 ImGui.TextDisabled("Sent");
             }
             else
             {
-                if (cd > TimeSpan.Zero) ImGui.BeginDisabled();
-                if (ImGui.SmallButton("Tell"))
+                var disabled = cd > TimeSpan.Zero || p.Unavailable.Length > 0;
+                if (disabled) ImGui.BeginDisabled();
+                if (ImGui.SmallButton(p.Unavailable.Length > 0 ? p.Unavailable : "Tell"))
                     status = plugin.SendTell(p, out var error) ? $"Sent tell to {p.Key}." : error;
-                if (cd > TimeSpan.Zero) ImGui.EndDisabled();
+                if (disabled) ImGui.EndDisabled();
                 if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-                    ImGui.SetTooltip(plugin.BuildMessage(p));
+                    ImGui.SetTooltip(p.Unavailable.Length > 0
+                        ? $"{p.Unavailable} when last seen. Press Refresh to check again."
+                        : plugin.BuildMessage(p));
             }
             ImGui.PopID();
         }

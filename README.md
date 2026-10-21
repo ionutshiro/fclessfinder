@@ -9,7 +9,10 @@ Finds players without a Free Company tag on your world and lets you send each of
 - **Refresh**: repeats your last Player Search with the same filters (at most once every 10 s) and rescans nearby players.
 - **Level and status**: the list shows New Adventurer, Returner, and Mentor status. Player Search doesn't report level, so level is shown only for players who have been near you.
 - Search results the game marks as from another server are skipped, because the game doesn't send their FC tag.
-- **Tells**: each row has a **Tell** button that sends one `/tell Name@World <your message>`. `{name}` and `{first}` in the template are replaced. A cooldown (minimum 3 s) applies between tells, and messaged players are remembered so nobody is messaged twice.
+- **New/returning first**: New Adventurers, Trial Adventurers and Returners are sorted to the top, and can be shown on their own.
+- **Tells**: each row has a **Tell** button that sends one `/tell Name@World <your message>`. `{name}` and `{first}` in the message are replaced. You can write up to 5 messages; each tell uses the next one in turn. A cooldown (minimum 3 s) applies between tells, and messaged players are remembered so nobody is messaged twice.
+- **Busy / in duty**: the Tell button is greyed out for players who were Busy or in a duty when last seen. Refresh to check again.
+- **Replies**: when someone you messaged sends you a tell, their row shows **Replied** and they're listed under *Replies*.
 
 There is deliberately no "message everyone" button: automated mass tells break Dalamud's plugin rules and can get an account flagged for spam.
 
