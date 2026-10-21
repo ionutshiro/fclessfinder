@@ -12,6 +12,16 @@ There is deliberately no "message everyone" button: automated mass tells break D
 
 Open the window with `/fcless`.
 
+## Install
+
+In game, open `/xlsettings` > *Experimental* > *Custom Plugin Repositories*, add this URL, tick it, and save:
+
+```
+https://raw.githubusercontent.com/ionutshiro/FcLessFinder/main/repo.json
+```
+
+Then install **FC-less Finder** from `/xlplugins`.
+
 ## Build
 
 Requires the .NET 10 SDK and Dalamud dev assemblies (installed by XIVLauncher, or set `DALAMUD_HOME`).
