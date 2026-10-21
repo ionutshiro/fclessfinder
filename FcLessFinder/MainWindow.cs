@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
@@ -9,6 +10,17 @@ namespace FcLessFinder;
 public sealed class MainWindow : Window
 {
     private static readonly Vector4 Green = new(0.4f, 0.9f, 0.4f, 1f);
+    private static readonly Vector4 Red = new(1f, 0.45f, 0.45f, 1f);
+    private static readonly Vector4 Yellow = new(1f, 0.85f, 0.4f, 1f);
+
+    /// <summary>Yes in green, No in red, unclear as a yellow "Replied".</summary>
+    private static void DrawAnswer(string? answer)
+    {
+        if (answer == ReplyClassifier.Yes) ImGui.TextColored(Green, "Yes");
+        else if (answer == ReplyClassifier.No) ImGui.TextColored(Red, "No");
+        else ImGui.TextColored(Yellow, "Replied");
+    }
+
     private readonly Plugin plugin;
     private string filter = "";
     private string status = "";
@@ -100,6 +112,8 @@ public sealed class MainWindow : Window
         {
             config.Messaged.Clear();
             config.Replied.Clear();
+            config.ReplyText.Clear();
+            config.ReplyAnswer.Clear();
             plugin.SaveConfig();
         }
 
@@ -129,10 +143,36 @@ public sealed class MainWindow : Window
         if (status.Length > 0)
             ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), status);
 
-        if (config.Replied.Count > 0 && ImGui.CollapsingHeader($"Replies ({config.Replied.Count})###replies"))
+        var yesCount = config.ReplyAnswer.Values.Count(a => a == ReplyClassifier.Yes);
+        var noCount = config.ReplyAnswer.Values.Count(a => a == ReplyClassifier.No);
+        if (config.Replied.Count > 0
+            && ImGui.CollapsingHeader($"Replies ({config.Replied.Count}: {yesCount} yes, {noCount} no)###replies")
+            && ImGui.BeginTable("##replies", 5, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.Resizable))
         {
+            ImGui.TableSetupColumn("Player", ImGuiTableColumnFlags.WidthFixed, 170);
+            ImGui.TableSetupColumn("Answer", ImGuiTableColumnFlags.WidthFixed, 50);
+            ImGui.TableSetupColumn("Their reply", ImGuiTableColumnFlags.WidthStretch);
+            ImGui.TableSetupColumn("When", ImGuiTableColumnFlags.WidthFixed, 90);
+            ImGui.TableSetupColumn("Set", ImGuiTableColumnFlags.WidthFixed, 80);
+            ImGui.TableHeadersRow();
+
             foreach (var (key, when) in config.Replied.OrderByDescending(r => r.Value))
-                ImGui.TextColored(Green, $"{key}  {when:dd MMM HH:mm}");
+            {
+                ImGui.PushID(key);
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn(); ImGui.Text(key);
+                ImGui.TableNextColumn(); DrawAnswer(config.ReplyAnswer.GetValueOrDefault(key));
+                ImGui.TableNextColumn(); ImGui.TextWrapped(config.ReplyText.GetValueOrDefault(key, ""));
+                ImGui.TableNextColumn(); ImGui.Text(when.ToString("dd MMM HH:mm"));
+                ImGui.TableNextColumn();
+                if (ImGui.SmallButton("Y")) plugin.SetAnswer(key, ReplyClassifier.Yes);
+                ImGui.SameLine();
+                if (ImGui.SmallButton("N")) plugin.SetAnswer(key, ReplyClassifier.No);
+                ImGui.SameLine();
+                if (ImGui.SmallButton("?")) plugin.SetAnswer(key, null);
+                ImGui.PopID();
+            }
+            ImGui.EndTable();
         }
 
         if (!ImGui.BeginTable("##roster", 8, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable))
@@ -168,7 +208,9 @@ public sealed class MainWindow : Window
             ImGui.PushID(p.Key);
             if (config.Replied.ContainsKey(p.Key))
             {
-                ImGui.TextColored(Green, "Replied");
+                DrawAnswer(config.ReplyAnswer.GetValueOrDefault(p.Key));
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip(config.ReplyText.GetValueOrDefault(p.Key, ""));
             }
             else if (config.Messaged.Contains(p.Key))
             {

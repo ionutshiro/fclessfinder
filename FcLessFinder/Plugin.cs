@@ -259,12 +259,26 @@ public sealed unsafe class Plugin : IDalamudPlugin
                 key = matches[0];
         }
 
-        if (key == null || !Config.Messaged.Contains(key) || Config.Replied.ContainsKey(key))
+        if (key == null || !Config.Messaged.Contains(key))
             return;
 
+        var text = message.Message.TextValue.Trim();
         Config.Replied[key] = DateTime.Now;
+        Config.ReplyText[key] = text;
+        // A later clear "yes" or "no" updates the answer; an unclear message keeps the previous one.
+        if (ReplyClassifier.Classify(text) is { } answer)
+            Config.ReplyAnswer[key] = answer;
         SaveConfig();
         Log.Information($"{key} replied");
+    }
+
+    public void SetAnswer(string key, string? answer)
+    {
+        if (answer == null)
+            Config.ReplyAnswer.Remove(key);
+        else
+            Config.ReplyAnswer[key] = answer;
+        SaveConfig();
     }
 
     public TimeSpan CooldownRemaining

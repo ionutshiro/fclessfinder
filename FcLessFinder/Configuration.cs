@@ -38,6 +38,12 @@ public sealed class Configuration : IPluginConfiguration
     /// <summary>"Name@World" keys of messaged players who sent a tell back, with when they replied.</summary>
     public Dictionary<string, DateTime> Replied { get; set; } = [];
 
+    /// <summary>Last tell each messaged player sent back.</summary>
+    public Dictionary<string, string> ReplyText { get; set; } = [];
+
+    /// <summary>"Yes" or "No" per player; guessed from the reply, can be changed by hand. Missing = unclear.</summary>
+    public Dictionary<string, string> ReplyAnswer { get; set; } = [];
+
     public void Migrate()
     {
         if (MessageTemplates.Count == 0)
