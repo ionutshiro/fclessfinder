@@ -80,7 +80,7 @@ public sealed class MainWindow : Window
         var onlyNew = config.OnlyNewAndReturning;
         if (ImGui.Checkbox("Only new/returning", ref onlyNew)) { config.OnlyNewAndReturning = onlyNew; plugin.SaveConfig(); }
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("New Adventurers, Trial Adventurers and Returners.");
+            ImGui.SetTooltip("New Adventurers and Returners.");
 
         if (ImGui.Button("Refresh"))
         {

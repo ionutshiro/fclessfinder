@@ -55,6 +55,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
     private readonly WindowSystem windowSystem = new("FcLessFinder");
     private readonly MainWindow mainWindow;
     private DateTime lastScan = DateTime.MinValue;
+    private readonly HashSet<string> trialPlayers = new(StringComparer.OrdinalIgnoreCase);
 
     public Plugin()
     {
@@ -91,7 +92,6 @@ public sealed unsafe class Plugin : IDalamudPlugin
     private static readonly uint[] ShownStatuses =
     [
         32, // New Adventurer
-        44, // Trial Adventurer
         31, // Returner
         27, // Mentor
         28, // PvE (battle) mentor
@@ -100,7 +100,9 @@ public sealed unsafe class Plugin : IDalamudPlugin
         30, // PvP mentor
     ];
 
-    private static readonly uint[] NewOrReturningStatuses = [32, 44, 31];
+    private static readonly uint[] NewOrReturningStatuses = [32, 31];
+    /// <summary>Free trial accounts can't join a Free Company, so they're never listed.</summary>
+    private const uint TrialAdventurerStatus = 44;
     private const uint BusyStatus = 12;
     private const uint InDutyStatus = 43;
 
@@ -200,9 +202,12 @@ public sealed unsafe class Plugin : IDalamudPlugin
             return false;
 
         var key = $"{name}@{world}";
-        if (!string.IsNullOrWhiteSpace(fcTag))
+        // Nearby characters show one status icon, so remember trial players once identified.
+        if (hasStatus(TrialAdventurerStatus))
+            trialPlayers.Add(key);
+        if (!string.IsNullOrWhiteSpace(fcTag) || trialPlayers.Contains(key))
         {
-            // They have (or just joined) an FC: drop them from the list.
+            // They have (or just joined) an FC, or are on a free trial: drop them from the list.
             Roster.Remove(key);
             return false;
         }
