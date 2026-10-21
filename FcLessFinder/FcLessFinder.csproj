@@ -2,7 +2,7 @@
   <PropertyGroup>
     <Version>0.1.0.0</Version>
     <Description>Find players without a Free Company tag and send them tells.</Description>
-    <PackageProjectUrl>https://github.com/ionutshiro/FcLessFinder-</PackageProjectUrl>
+    <PackageProjectUrl>https://github.com/ionutshiro/fclessfinder</PackageProjectUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <IsPackable>false</IsPackable>
   </PropertyGroup>

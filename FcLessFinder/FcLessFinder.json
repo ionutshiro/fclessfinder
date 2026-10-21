@@ -4,6 +4,6 @@
   "Punchline": "Find players without a Free Company and send them a tell.",
   "Description": "Collects players without an FC tag from the in-game Player Search results and from players around you, then lets you send each one a templated /tell with a single click.",
   "ApplicableVersion": "any",
-  "RepoUrl": "https://github.com/ionutshiro/FcLessFinder-",
+  "RepoUrl": "https://github.com/ionutshiro/fclessfinder",
   "Tags": ["social", "free company", "recruitment", "search"]
 }

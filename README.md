@@ -17,7 +17,7 @@ Open the window with `/fcless`.
 In game, open `/xlsettings` > *Experimental* > *Custom Plugin Repositories*, add this URL, tick it, and save:
 
 ```
-https://raw.githubusercontent.com/ionutshiro/FcLessFinder-/main/repo.json
+https://raw.githubusercontent.com/ionutshiro/fclessfinder/main/repo.json
 ```
 
 Then install **FC-less Finder** from `/xlplugins`.
