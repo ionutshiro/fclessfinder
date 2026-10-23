@@ -13,6 +13,11 @@ Finds players without a Free Company tag on your world and lets you send each of
 - **Free trials**: players with the Trial Adventurer status are left out, because free trial accounts can't join a Free Company.
 - **Tells**: each row has a **Tell** button that sends one `/tell Name@World <your message>`. `{name}` and `{first}` in the message are replaced. You can write up to 5 messages; each tell uses the next one in turn. A cooldown (minimum 3 s) applies between tells, and messaged players are remembered so nobody is messaged twice.
 - **Ignore**: each row has an **Ignore** button that hides that player for good. Ignored players are listed under *Ignored players*, where you can unignore them.
+- **Saved list**: collected players are saved to `roster.json` in the plugin's config folder, so the list survives restarts.
+- **Reply alerts**: when someone you messaged replies, a coloured line is printed in chat and a pop-up appears (toggleable).
+- **Invited / Joined**: mark players as Invited or Joined from the Replies table or the right-click menu. Someone you messaged who later shows up wearing your FC tag is marked Joined automatically.
+- **Tell again**: players who never answered can get one more tell after a set number of days (default 7). Nobody gets more than two tells.
+- **Right-click menu**: right-click a player in game (chat name, character, party or friend list) for an *FC-less Finder* submenu: Ignore / Unignore, Add to list, Mark invited, Mark joined.
 - **Busy / in duty**: the Tell button is greyed out for players who were Busy or in a duty when last seen. Refresh to check again.
 - **Replies**: when someone you messaged sends you a tell, their reply is saved and listed under *Replies*. The plugin guesses **Yes** ("sure", "why not", "ok") or **No** ("no thanks", "not interested", "already have an FC") from common words; unclear replies show as **Replied**. Use the Y / N / ? buttons to correct a guess.
 

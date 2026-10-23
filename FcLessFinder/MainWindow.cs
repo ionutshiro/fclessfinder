@@ -21,6 +21,26 @@ public sealed class MainWindow : Window
         else ImGui.TextColored(Yellow, "Replied");
     }
 
+    /// <summary>Invited / Joined buttons for a player who has been messaged.</summary>
+    private void DrawProgress(string key)
+    {
+        var progress = plugin.Config.Progress.GetValueOrDefault(key);
+        if (progress == Plugin.Joined)
+        {
+            ImGui.TextColored(Green, "Joined");
+            ImGui.SameLine();
+            if (ImGui.SmallButton("Undo")) plugin.SetProgress(key, null);
+            return;
+        }
+        if (progress == Plugin.Invited)
+            ImGui.TextColored(Yellow, "Invited");
+        else if (ImGui.SmallButton("Invited"))
+            plugin.SetProgress(key, Plugin.Invited);
+        ImGui.SameLine();
+        if (ImGui.SmallButton("Joined"))
+            plugin.SetProgress(key, Plugin.Joined);
+    }
+
     private readonly Plugin plugin;
     private string filter = "";
     private string status = "";
@@ -86,6 +106,16 @@ public sealed class MainWindow : Window
         var nearby = config.CollectNearby;
         if (ImGui.Checkbox("Collect nearby players", ref nearby)) { config.CollectNearby = nearby; plugin.SaveConfig(); }
 
+        var notify = config.NotifyReplies;
+        if (ImGui.Checkbox("Alert me when someone replies", ref notify)) { config.NotifyReplies = notify; plugin.SaveConfig(); }
+        ImGui.SameLine();
+        var retell = config.AllowRetell;
+        if (ImGui.Checkbox("Allow one more tell to players who didn't answer, after", ref retell)) { config.AllowRetell = retell; plugin.SaveConfig(); }
+        ImGui.SameLine();
+        var days = config.RetellAfterDays;
+        ImGui.SetNextItemWidth(100);
+        if (ImGui.SliderInt("days", ref days, 1, 30)) { config.RetellAfterDays = days; plugin.SaveConfig(); }
+
         var newFirst = config.NewAndReturningFirst;
         if (ImGui.Checkbox("New/returning players first", ref newFirst)) { config.NewAndReturningFirst = newFirst; plugin.SaveConfig(); }
         ImGui.SameLine();
@@ -106,7 +136,7 @@ public sealed class MainWindow : Window
         ImGui.InputTextWithHint("##filter", "Filter: name, job or status", ref filter, 64);
         ImGui.SameLine();
         if (ImGui.Button("Clear list"))
-            plugin.Roster.Clear();
+            plugin.ClearRoster();
         ImGui.SameLine();
         if (ImGui.Button("Forget messaged history"))
         {
@@ -114,6 +144,9 @@ public sealed class MainWindow : Window
             config.Replied.Clear();
             config.ReplyText.Clear();
             config.ReplyAnswer.Clear();
+            config.MessagedAt.Clear();
+            config.TellCount.Clear();
+            config.Progress.Clear();
             plugin.SaveConfig();
         }
 
@@ -121,8 +154,8 @@ public sealed class MainWindow : Window
         var rows = plugin.Roster.Values
             .Where(p => !config.Ignored.Contains(p.Key))
             .Where(p => !config.OnlyMyHomeWorld || homeWorld == null || p.HomeWorldId == homeWorld)
-            // Players who replied stay visible even when messaged players are hidden.
-            .Where(p => !config.HideMessaged || !config.Messaged.Contains(p.Key) || config.Replied.ContainsKey(p.Key))
+            // Players who replied, or who can be messaged again, stay visible even when messaged players are hidden.
+            .Where(p => !config.HideMessaged || !config.Messaged.Contains(p.Key) || config.Replied.ContainsKey(p.Key) || config.CanRetell(p.Key))
             .Where(p => !config.OnlyNewAndReturning || p.IsNewOrReturning)
             .Where(p => filter.Length == 0
                         || p.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)
@@ -148,13 +181,14 @@ public sealed class MainWindow : Window
         var noCount = config.ReplyAnswer.Values.Count(a => a == ReplyClassifier.No);
         if (config.Replied.Count > 0
             && ImGui.CollapsingHeader($"Replies ({config.Replied.Count}: {yesCount} yes, {noCount} no)###replies")
-            && ImGui.BeginTable("##replies", 5, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.Resizable))
+            && ImGui.BeginTable("##replies", 6, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.Resizable))
         {
             ImGui.TableSetupColumn("Player", ImGuiTableColumnFlags.WidthFixed, 170);
             ImGui.TableSetupColumn("Answer", ImGuiTableColumnFlags.WidthFixed, 50);
             ImGui.TableSetupColumn("Their reply", ImGuiTableColumnFlags.WidthStretch);
             ImGui.TableSetupColumn("When", ImGuiTableColumnFlags.WidthFixed, 90);
             ImGui.TableSetupColumn("Set", ImGuiTableColumnFlags.WidthFixed, 80);
+            ImGui.TableSetupColumn("Invite", ImGuiTableColumnFlags.WidthFixed, 130);
             ImGui.TableHeadersRow();
 
             foreach (var (key, when) in config.Replied.OrderByDescending(r => r.Value))
@@ -171,6 +205,7 @@ public sealed class MainWindow : Window
                 if (ImGui.SmallButton("N")) plugin.SetAnswer(key, ReplyClassifier.No);
                 ImGui.SameLine();
                 if (ImGui.SmallButton("?")) plugin.SetAnswer(key, null);
+                ImGui.TableNextColumn(); DrawProgress(key);
                 ImGui.PopID();
             }
             ImGui.EndTable();
@@ -206,7 +241,7 @@ public sealed class MainWindow : Window
         ImGui.TableSetupColumn("Status", ImGuiTableColumnFlags.WidthFixed, 130);
         ImGui.TableSetupColumn("Source", ImGuiTableColumnFlags.WidthFixed, 90);
         ImGui.TableSetupColumn("Seen", ImGuiTableColumnFlags.WidthFixed, 60);
-        ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 70);
+        ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 80);
         ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 50);
         ImGui.TableHeadersRow();
 
@@ -229,21 +264,28 @@ public sealed class MainWindow : Window
             ImGui.TableNextColumn();
 
             ImGui.PushID(p.Key);
-            if (config.Replied.ContainsKey(p.Key))
+            if (config.Progress.TryGetValue(p.Key, out var progress))
+            {
+                ImGui.TextColored(Green, progress);
+            }
+            else if (config.Replied.ContainsKey(p.Key))
             {
                 DrawAnswer(config.ReplyAnswer.GetValueOrDefault(p.Key));
                 if (ImGui.IsItemHovered())
                     ImGui.SetTooltip(config.ReplyText.GetValueOrDefault(p.Key, ""));
             }
-            else if (config.Messaged.Contains(p.Key))
+            else if (config.Messaged.Contains(p.Key) && !config.CanRetell(p.Key))
             {
                 ImGui.TextDisabled("Sent");
+                if (ImGui.IsItemHovered() && config.MessagedAt.TryGetValue(p.Key, out var sentAt))
+                    ImGui.SetTooltip($"Sent {sentAt:dd MMM HH:mm}.");
             }
             else
             {
                 var disabled = cd > TimeSpan.Zero || p.Unavailable.Length > 0;
                 if (disabled) ImGui.BeginDisabled();
-                if (ImGui.SmallButton(p.Unavailable.Length > 0 ? p.Unavailable : "Tell"))
+                var label = p.Unavailable.Length > 0 ? p.Unavailable : config.Messaged.Contains(p.Key) ? "Tell again" : "Tell";
+                if (ImGui.SmallButton(label))
                     status = plugin.SendTell(p, out var error) ? $"Sent tell to {p.Key}." : error;
                 if (disabled) ImGui.EndDisabled();
                 if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))

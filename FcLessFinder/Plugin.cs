@@ -1,12 +1,18 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.IO;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Dalamud.Game.Chat;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.Command;
+using Dalamud.Game.Gui.ContextMenu;
 using Dalamud.Game.Text;
+using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
+using Dalamud.Interface.ImGuiNotification;
 using Dalamud.Interface.Windowing;
 using Dalamud.IoC;
 using Dalamud.Plugin;
@@ -32,7 +38,7 @@ public sealed class PlayerEntry
     public string Unavailable { get; set; } = "";
     public string Source { get; set; } = "";
     public DateTime LastSeen { get; set; }
-    public string Key => $"{Name}@{HomeWorld}";
+    [JsonIgnore] public string Key => $"{Name}@{HomeWorld}";
 }
 
 public sealed unsafe class Plugin : IDalamudPlugin
@@ -46,6 +52,8 @@ public sealed unsafe class Plugin : IDalamudPlugin
     [PluginService] internal static IObjectTable ObjectTable { get; private set; } = null!;
     [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
+    [PluginService] internal static IContextMenu ContextMenu { get; private set; } = null!;
+    [PluginService] internal static INotificationManager Notifications { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
 
     public Configuration Config { get; }
@@ -56,11 +64,14 @@ public sealed unsafe class Plugin : IDalamudPlugin
     private readonly MainWindow mainWindow;
     private DateTime lastScan = DateTime.MinValue;
     private readonly HashSet<string> trialPlayers = new(StringComparer.OrdinalIgnoreCase);
+    private DateTime lastRosterSave = DateTime.Now;
+    private string RosterPath => Path.Combine(PluginInterface.ConfigDirectory.FullName, "roster.json");
 
     public Plugin()
     {
         Config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         Config.Migrate();
+        LoadRoster();
         mainWindow = new MainWindow(this);
         windowSystem.AddWindow(mainWindow);
 
@@ -72,11 +83,14 @@ public sealed unsafe class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenMainUi += mainWindow.Toggle;
         Framework.Update += OnFrameworkUpdate;
         ChatGui.ChatMessage += OnChatMessage;
+        ContextMenu.OnMenuOpened += OnMenuOpened;
     }
 
     public void Dispose()
     {
+        ContextMenu.OnMenuOpened -= OnMenuOpened;
         ChatGui.ChatMessage -= OnChatMessage;
+        SaveRoster();
         Framework.Update -= OnFrameworkUpdate;
         PluginInterface.UiBuilder.Draw -= windowSystem.Draw;
         PluginInterface.UiBuilder.OpenMainUi -= mainWindow.Toggle;
@@ -85,6 +99,45 @@ public sealed unsafe class Plugin : IDalamudPlugin
     }
 
     public void SaveConfig() => PluginInterface.SavePluginConfig(Config);
+
+    /// <summary>The collected list is kept in its own file next to the config, so it survives restarts.</summary>
+    private void LoadRoster()
+    {
+        try
+        {
+            if (!File.Exists(RosterPath))
+                return;
+            foreach (var p in JsonSerializer.Deserialize<List<PlayerEntry>>(File.ReadAllText(RosterPath)) ?? [])
+                Roster[p.Key] = p;
+        }
+        catch (Exception e)
+        {
+            Log.Warning(e, "Couldn't load the saved player list; starting empty.");
+        }
+    }
+
+    public void ClearRoster()
+    {
+        Roster.Clear();
+        SaveRoster();
+    }
+
+    private void SaveRoster()
+    {
+        try
+        {
+            Directory.CreateDirectory(PluginInterface.ConfigDirectory.FullName);
+            // Write to a temp file first so a crash mid-write can't corrupt the saved list.
+            var tmp = RosterPath + ".tmp";
+            File.WriteAllText(tmp, JsonSerializer.Serialize(Roster.Values.ToList()));
+            File.Move(tmp, RosterPath, true);
+            lastRosterSave = DateTime.Now;
+        }
+        catch (Exception e)
+        {
+            Log.Warning(e, "Couldn't save the player list.");
+        }
+    }
 
     public ushort? LocalHomeWorldId => (ushort?)ObjectTable.LocalPlayer?.HomeWorld.RowId;
 
@@ -114,6 +167,8 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
     private void OnFrameworkUpdate(IFramework framework)
     {
+        if (DateTime.Now - lastRosterSave > TimeSpan.FromMinutes(2))
+            SaveRoster();
         if (DateTime.Now - lastScan < TimeSpan.FromSeconds(1))
             return;
         ScanNow();
@@ -205,6 +260,15 @@ public sealed unsafe class Plugin : IDalamudPlugin
         // Nearby characters show one status icon, so remember trial players once identified.
         if (hasStatus(TrialAdventurerStatus))
             trialPlayers.Add(key);
+        if (!string.IsNullOrWhiteSpace(fcTag) && Config.Messaged.Contains(key)
+            && MyFcTag is { Length: > 0 } mine && NormalizeTag(fcTag) == mine
+            && Config.Progress.GetValueOrDefault(key) != Joined)
+        {
+            // Someone we recruited now wears our FC tag.
+            SetProgress(key, Joined);
+            ChatGui.Print($"[FC-less Finder] {key} joined your Free Company.");
+        }
+
         if (!string.IsNullOrWhiteSpace(fcTag) || trialPlayers.Contains(key))
         {
             // They have (or just joined) an FC, or are on a free trial: drop them from the list.
@@ -270,7 +334,92 @@ public sealed unsafe class Plugin : IDalamudPlugin
             Config.ReplyAnswer[key] = answer;
         SaveConfig();
         Log.Information($"{key} replied");
+
+        if (Config.NotifyReplies)
+            NotifyReply(key, Config.ReplyAnswer.GetValueOrDefault(key), text);
     }
+
+    private static void NotifyReply(string key, string? answer, string text)
+    {
+        // UI colour rows: 45 green, 17 red, 25 yellow.
+        var (label, color) = answer switch
+        {
+            ReplyClassifier.Yes => ("YES", (ushort)45),
+            ReplyClassifier.No => ("no", (ushort)17),
+            _ => ("replied", (ushort)25),
+        };
+        ChatGui.Print(new SeStringBuilder()
+            .AddText("[FC-less Finder] ")
+            .AddUiForeground($"{key} {label}", color)
+            .AddText($": {text}")
+            .Build());
+        Notifications.AddNotification(new Notification
+        {
+            Title = $"{key} replied",
+            Content = text,
+            Type = answer == ReplyClassifier.Yes ? NotificationType.Success : NotificationType.Info,
+        });
+    }
+
+    public const string Invited = "Invited";
+    public const string Joined = "Joined";
+
+    public void SetProgress(string key, string? progress)
+    {
+        if (progress == null)
+            Config.Progress.Remove(key);
+        else
+            Config.Progress[key] = progress;
+        SaveConfig();
+    }
+
+    /// <summary>Your own FC tag, without the « » around it; null when you're not in an FC or not logged in.</summary>
+    private static string? MyFcTag => ObjectTable.LocalPlayer is { } me ? NormalizeTag(me.CompanyTag.TextValue) : null;
+
+    private static string NormalizeTag(string tag) => tag.Trim().Trim('«', '»', '<', '>').Trim();
+
+    /// <summary>Adds an "FC-less Finder" submenu when right-clicking a player (chat name, party list, friend list, character).</summary>
+    private void OnMenuOpened(IMenuOpenedArgs args)
+    {
+        if (args.MenuType != ContextMenuType.Default || args.Target is not MenuTargetDefault target)
+            return;
+        var name = target.TargetName;
+        var worldId = (ushort)target.TargetHomeWorld.RowId;
+        var world = target.TargetHomeWorld.ValueNullable?.Name.ExtractText() ?? "";
+        if (string.IsNullOrWhiteSpace(name) || worldId == 0 || world.Length == 0)
+            return;
+        if (ObjectTable.LocalPlayer is { } me && me.Name.TextValue == name && me.HomeWorld.RowId == worldId)
+            return;
+
+        var key = $"{name}@{world}";
+        var items = new List<IMenuItem>();
+        if (Config.Ignored.Contains(key))
+            items.Add(Item("Unignore", () => { Config.Ignored.Remove(key); SaveConfig(); }));
+        else
+            items.Add(Item("Ignore", () => { Config.Ignored.Add(key); SaveConfig(); ChatGui.Print($"[FC-less Finder] Ignoring {key}."); }));
+        if (!Roster.ContainsKey(key))
+            items.Add(Item("Add to list", () =>
+            {
+                Roster[key] = new PlayerEntry { Name = name, HomeWorldId = worldId, HomeWorld = world, Source = "Manual", LastSeen = DateTime.Now };
+                ChatGui.Print($"[FC-less Finder] Added {key} to the list.");
+            }));
+        if (Config.Messaged.Contains(key) && Config.Progress.GetValueOrDefault(key) != Joined)
+        {
+            if (Config.Progress.GetValueOrDefault(key) != Invited)
+                items.Add(Item("Mark invited", () => SetProgress(key, Invited)));
+            items.Add(Item("Mark joined", () => SetProgress(key, Joined)));
+        }
+
+        args.AddMenuItem(new MenuItem
+        {
+            Name = "FC-less Finder",
+            PrefixChar = 'F',
+            IsSubmenu = true,
+            OnClicked = clicked => clicked.OpenSubmenu(items),
+        });
+    }
+
+    private static MenuItem Item(string name, System.Action onClick) => new() { Name = name, OnClicked = _ => onClick() };
 
     public void SetAnswer(string key, string? answer)
     {
@@ -330,6 +479,12 @@ public sealed unsafe class Plugin : IDalamudPlugin
             return false;
         }
 
+        if (Config.Messaged.Contains(p.Key) && !Config.CanRetell(p.Key))
+        {
+            error = $"{p.Name} was already messaged.";
+            return false;
+        }
+
         if (p.Unavailable.Length > 0)
         {
             error = $"{p.Name} was {p.Unavailable.ToLowerInvariant()} when last seen.";
@@ -338,6 +493,8 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
         LastTellSent = DateTime.Now;
         Config.Messaged.Add(p.Key);
+        Config.MessagedAt[p.Key] = DateTime.Now;
+        Config.TellCount[p.Key] = Config.TellCount.GetValueOrDefault(p.Key) + 1;
         Config.NextTemplate = (Config.NextTemplate + 1) % UsableTemplates.Count;
         SaveConfig();
 
