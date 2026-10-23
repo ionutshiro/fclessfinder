@@ -12,7 +12,7 @@ Finds players without a Free Company tag on your world and lets you send each of
 - **New/returning first**: New Adventurers and Returners are sorted to the top, and can be shown on their own.
 - **Free trials**: players with the Trial Adventurer status are left out, because free trial accounts can't join a Free Company.
 - **Tells**: each row has a **Tell** button that sends one `/tell Name@World <your message>`. `{name}` and `{first}` in the message are replaced. You can write up to 5 messages; each tell uses the next one in turn. A cooldown (minimum 3 s) applies between tells, and messaged players are remembered so nobody is messaged twice.
-- **Ignore**: each row has an **Ignore** button that hides that player for good. Ignored players are listed under *Ignored players*, where you can unignore them.
+- **Ignore**: each row has an **Ignore** button that hides that player for good. Ignored players are listed in the Settings tab, where you can unignore them.
 - **Saved list**: collected players are saved to `roster.json` in the plugin's config folder, so the list survives restarts.
 - **Reply alerts**: when someone you messaged replies, a coloured line is printed in chat and a pop-up appears (toggleable).
 - **Invited / Joined**: mark players as Invited or Joined from the Replies table or the right-click menu. Someone you messaged who later shows up wearing your FC tag is marked Joined automatically.
@@ -23,7 +23,7 @@ Finds players without a Free Company tag on your world and lets you send each of
 
 There is deliberately no "message everyone" button: automated mass tells break Dalamud's plugin rules and can get an account flagged for spam.
 
-Open the window with `/fcless`.
+Open the window with `/fcless`. It has four tabs: **Players** (the list, Refresh and filters), **Replies**, **Messages** (your tell texts and the cooldown) and **Settings** (alerts, re-tells, ignored players and reset buttons).
 
 ## Install
 
