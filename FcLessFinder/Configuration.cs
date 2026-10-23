@@ -35,6 +35,9 @@ public sealed class Configuration : IPluginConfiguration
     /// <summary>"Name@World" keys of players already sent a tell, so nobody gets messaged twice.</summary>
     public HashSet<string> Messaged { get; set; } = [];
 
+    /// <summary>"Name@World" keys of players you chose to ignore; they never show in the list.</summary>
+    public HashSet<string> Ignored { get; set; } = [];
+
     /// <summary>"Name@World" keys of messaged players who sent a tell back, with when they replied.</summary>
     public Dictionary<string, DateTime> Replied { get; set; } = [];
 

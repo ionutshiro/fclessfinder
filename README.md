@@ -12,6 +12,7 @@ Finds players without a Free Company tag on your world and lets you send each of
 - **New/returning first**: New Adventurers and Returners are sorted to the top, and can be shown on their own.
 - **Free trials**: players with the Trial Adventurer status are left out, because free trial accounts can't join a Free Company.
 - **Tells**: each row has a **Tell** button that sends one `/tell Name@World <your message>`. `{name}` and `{first}` in the message are replaced. You can write up to 5 messages; each tell uses the next one in turn. A cooldown (minimum 3 s) applies between tells, and messaged players are remembered so nobody is messaged twice.
+- **Ignore**: each row has an **Ignore** button that hides that player for good. Ignored players are listed under *Ignored players*, where you can unignore them.
 - **Busy / in duty**: the Tell button is greyed out for players who were Busy or in a duty when last seen. Refresh to check again.
 - **Replies**: when someone you messaged sends you a tell, their reply is saved and listed under *Replies*. The plugin guesses **Yes** ("sure", "why not", "ok") or **No** ("no thanks", "not interested", "already have an FC") from common words; unclear replies show as **Replied**. Use the Y / N / ? buttons to correct a guess.
 

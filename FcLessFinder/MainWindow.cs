@@ -119,6 +119,7 @@ public sealed class MainWindow : Window
 
         var homeWorld = plugin.LocalHomeWorldId;
         var rows = plugin.Roster.Values
+            .Where(p => !config.Ignored.Contains(p.Key))
             .Where(p => !config.OnlyMyHomeWorld || homeWorld == null || p.HomeWorldId == homeWorld)
             // Players who replied stay visible even when messaged players are hidden.
             .Where(p => !config.HideMessaged || !config.Messaged.Contains(p.Key) || config.Replied.ContainsKey(p.Key))
@@ -175,7 +176,26 @@ public sealed class MainWindow : Window
             ImGui.EndTable();
         }
 
-        if (!ImGui.BeginTable("##roster", 8, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable))
+        if (config.Ignored.Count > 0 && ImGui.CollapsingHeader($"Ignored players ({config.Ignored.Count})###ignored"))
+        {
+            string? unignore = null;
+            foreach (var key in config.Ignored.Order())
+            {
+                ImGui.PushID(key);
+                if (ImGui.SmallButton("Unignore"))
+                    unignore = key;
+                ImGui.SameLine();
+                ImGui.Text(key);
+                ImGui.PopID();
+            }
+            if (unignore != null)
+            {
+                config.Ignored.Remove(unignore);
+                plugin.SaveConfig();
+            }
+        }
+
+        if (!ImGui.BeginTable("##roster", 9, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable))
             return;
 
         ImGui.TableSetupScrollFreeze(0, 1);
@@ -187,7 +207,10 @@ public sealed class MainWindow : Window
         ImGui.TableSetupColumn("Source", ImGuiTableColumnFlags.WidthFixed, 90);
         ImGui.TableSetupColumn("Seen", ImGuiTableColumnFlags.WidthFixed, 60);
         ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 70);
+        ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 50);
         ImGui.TableHeadersRow();
+
+        string? ignore = null;
 
         foreach (var p in rows)
         {
@@ -228,9 +251,23 @@ public sealed class MainWindow : Window
                         ? $"{p.Unavailable} when last seen. Press Refresh to check again."
                         : plugin.BuildMessage(p));
             }
+
+            ImGui.TableNextColumn();
+            if (ImGui.SmallButton("Ignore"))
+                ignore = p.Key;
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip("Hide this player from the list. Undo under \"Ignored players\".");
             ImGui.PopID();
         }
 
         ImGui.EndTable();
+
+        // Changed after the loop so the list isn't modified while it's being drawn.
+        if (ignore != null)
+        {
+            config.Ignored.Add(ignore);
+            plugin.SaveConfig();
+            status = $"Ignoring {ignore}.";
+        }
     }
 }
