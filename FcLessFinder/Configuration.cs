@@ -32,6 +32,9 @@ public sealed class Configuration : IPluginConfiguration
     public bool NewAndReturningFirst { get; set; } = true;
     public bool OnlyNewAndReturning { get; set; }
 
+    /// <summary>Keep players whose answer is No out of the Players list (they stay in the Replies tab).</summary>
+    public bool HideRefused { get; set; } = true;
+
     /// <summary>"Name@World" keys of players already sent a tell, so nobody gets messaged twice.</summary>
     public HashSet<string> Messaged { get; set; } = [];
 

@@ -93,6 +93,11 @@ public sealed class MainWindow : Window
         if (ImGui.Checkbox("Only new/returning", ref onlyNew)) { config.OnlyNewAndReturning = onlyNew; plugin.SaveConfig(); }
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("New Adventurers and Returners.");
+        ImGui.SameLine();
+        var hideRefused = config.HideRefused;
+        if (ImGui.Checkbox("Hide players who said no", ref hideRefused)) { config.HideRefused = hideRefused; plugin.SaveConfig(); }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Players whose answer is No. They're still listed in the Replies tab.");
 
         var homeWorld = plugin.LocalHomeWorldId;
         var rows = plugin.Roster.Values
@@ -101,6 +106,7 @@ public sealed class MainWindow : Window
             // Players who replied, or who can be messaged again, stay visible even when messaged players are hidden.
             .Where(p => !config.HideMessaged || !config.Messaged.Contains(p.Key) || config.Replied.ContainsKey(p.Key) || config.CanRetell(p.Key))
             .Where(p => !config.OnlyNewAndReturning || p.IsNewOrReturning)
+            .Where(p => !config.HideRefused || config.ReplyAnswer.GetValueOrDefault(p.Key) != ReplyClassifier.No)
             .Where(p => filter.Length == 0
                         || p.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)
                         || p.Job.Contains(filter, StringComparison.OrdinalIgnoreCase)
