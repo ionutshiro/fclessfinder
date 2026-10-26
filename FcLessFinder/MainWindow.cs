@@ -99,6 +99,16 @@ public sealed class MainWindow : Window
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("Players whose answer is No. They're still listed in the Replies tab.");
 
+        var recent = config.OnlyRecentlySeen;
+        if (ImGui.Checkbox("Only players seen in the last", ref recent)) { config.OnlyRecentlySeen = recent; plugin.SaveConfig(); }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Hides players who may have logged off since they were found. Refresh re-runs your search to see who is still online.");
+        ImGui.SameLine();
+        var minutes = config.RecentMinutes;
+        ImGui.SetNextItemWidth(120);
+        if (ImGui.SliderInt("minutes", ref minutes, 5, 120)) { config.RecentMinutes = minutes; plugin.SaveConfig(); }
+        var recentSince = DateTime.Now - TimeSpan.FromMinutes(config.RecentMinutes);
+
         var homeWorld = plugin.LocalHomeWorldId;
         var rows = plugin.Roster.Values
             .Where(p => !config.Ignored.Contains(p.Key))
@@ -106,6 +116,7 @@ public sealed class MainWindow : Window
             // Players who replied, or who can be messaged again, stay visible even when messaged players are hidden.
             .Where(p => !config.HideMessaged || !config.Messaged.Contains(p.Key) || config.Replied.ContainsKey(p.Key) || config.CanRetell(p.Key))
             .Where(p => !config.OnlyNewAndReturning || p.IsNewOrReturning)
+            .Where(p => !config.OnlyRecentlySeen || p.LastSeen >= recentSince)
             .Where(p => !config.HideRefused || config.ReplyAnswer.GetValueOrDefault(p.Key) != ReplyClassifier.No)
             .Where(p => filter.Length == 0
                         || p.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)
@@ -117,7 +128,8 @@ public sealed class MainWindow : Window
 
         ImGui.Text($"{rows.Count} players shown ({plugin.Roster.Count} collected).");
         ImGui.SameLine();
-        ImGui.TextDisabled($"Current Player Search: {plugin.SearchResultCount} results, {plugin.SearchWithoutFcCount} without FC.");
+        ImGui.TextDisabled($"Current Player Search: {plugin.SearchResultCount} results, {plugin.SearchWithoutFcCount} without FC"
+                           + (plugin.SearchResultCount > 0 ? $", {Ago(plugin.SearchResultsAt)}." : "."));
 
         if (!ImGui.BeginTable("##roster", 9, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable))
             return;
@@ -150,7 +162,7 @@ public sealed class MainWindow : Window
                 ImGui.SetTooltip("Player Search doesn't report level. It fills in once this player is near you.");
             ImGui.TableNextColumn(); ImGui.Text(p.Status);
             ImGui.TableNextColumn(); ImGui.Text(p.Source);
-            ImGui.TableNextColumn(); ImGui.Text(p.LastSeen.ToString("HH:mm"));
+            ImGui.TableNextColumn(); ImGui.Text(Ago(p.LastSeen));
             ImGui.TableNextColumn();
 
             ImGui.PushID(p.Key);
@@ -356,6 +368,12 @@ public sealed class MainWindow : Window
         }
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("Forgets who you messaged, their replies and Invited/Joined. Ignored players are kept.");
+    }
+
+    private static string Ago(DateTime t)
+    {
+        var d = DateTime.Now - t;
+        return d.TotalMinutes < 1 ? "now" : d.TotalHours < 1 ? $"{d.TotalMinutes:0}m ago" : d.TotalDays < 1 ? $"{d.TotalHours:0}h ago" : $"{d.TotalDays:0}d ago";
     }
 
     /// <summary>Yes in green, No in red, unclear as a yellow "Replied".</summary>

@@ -162,6 +162,9 @@ public sealed unsafe class Plugin : IDalamudPlugin
     /// <summary>Entries the game's Player Search currently holds, and how many of them have no FC.</summary>
     public int SearchResultCount { get; private set; }
     public int SearchWithoutFcCount { get; private set; }
+    /// <summary>When the results currently in the game's Player Search arrived.</summary>
+    public DateTime SearchResultsAt { get; private set; } = DateTime.MinValue;
+    private (byte, uint, string) lastSearchSignature;
     public DateTime LastSearchRequest { get; private set; } = DateTime.MinValue;
     public static readonly TimeSpan SearchRequestCooldown = TimeSpan.FromSeconds(10);
 
@@ -214,6 +217,17 @@ public sealed unsafe class Plugin : IDalamudPlugin
             return;
 
         var count = proxy->GetEntryCount();
+
+        // The game keeps old results in memory, so date them by when they arrived, not by when we read them.
+        // A new request, or more pages arriving, changes this signature.
+        var first = count > 0 && proxy->GetEntry(0) is var e0 && e0 != null ? e0->NameString : "";
+        var signature = (proxy->CurrentRequestId, count, first);
+        if (signature != lastSearchSignature)
+        {
+            lastSearchSignature = signature;
+            SearchResultsAt = DateTime.Now;
+        }
+
         var withoutFc = 0;
         for (uint i = 0; i < count; i++)
         {
@@ -225,7 +239,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
             var world = entry->HomeWorld != 0 ? entry->HomeWorld : entry->CurrentWorld;
             var state = (ulong)entry->State;
-            if (Observe(entry->NameString, world, entry->FCTagString, entry->Job, 0, id => (state & (1ul << (int)id)) != 0, "Player Search"))
+            if (Observe(entry->NameString, world, entry->FCTagString, entry->Job, 0, id => (state & (1ul << (int)id)) != 0, "Player Search", SearchResultsAt))
                 withoutFc++;
         }
 
@@ -242,12 +256,12 @@ public sealed unsafe class Plugin : IDalamudPlugin
                 continue;
             // Nearby characters carry a single online status (the icon above their head).
             var status = pc.OnlineStatus.RowId;
-            Observe(pc.Name.TextValue, (ushort)pc.HomeWorld.RowId, pc.CompanyTag.TextValue, (byte)pc.ClassJob.RowId, pc.Level, id => id == status, "Nearby");
+            Observe(pc.Name.TextValue, (ushort)pc.HomeWorld.RowId, pc.CompanyTag.TextValue, (byte)pc.ClassJob.RowId, pc.Level, id => id == status, "Nearby", DateTime.Now);
         }
     }
 
     /// <summary>Adds or updates a player without an FC. Returns true when the player was kept (has no FC).</summary>
-    private bool Observe(string name, ushort homeWorldId, string fcTag, byte jobId, byte level, Func<uint, bool> hasStatus, string source)
+    private bool Observe(string name, ushort homeWorldId, string fcTag, byte jobId, byte level, Func<uint, bool> hasStatus, string source, DateTime seenAt)
     {
         if (string.IsNullOrWhiteSpace(name) || homeWorldId == 0)
             return false;
@@ -299,7 +313,9 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
         p.Unavailable = hasStatus(InDutyStatus) ? "In duty" : hasStatus(BusyStatus) ? "Busy" : "";
         p.Source = source;
-        p.LastSeen = DateTime.Now;
+        // Never move LastSeen backwards (old search results must not override a fresh nearby sighting).
+        if (seenAt > p.LastSeen)
+            p.LastSeen = seenAt;
         return true;
     }
 

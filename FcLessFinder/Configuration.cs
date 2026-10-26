@@ -35,6 +35,10 @@ public sealed class Configuration : IPluginConfiguration
     /// <summary>Keep players whose answer is No out of the Players list (they stay in the Replies tab).</summary>
     public bool HideRefused { get; set; } = true;
 
+    /// <summary>Hide players not seen in a search or nearby within this many minutes; they may have logged off.</summary>
+    public bool OnlyRecentlySeen { get; set; } = true;
+    public int RecentMinutes { get; set; } = 20;
+
     /// <summary>"Name@World" keys of players already sent a tell, so nobody gets messaged twice.</summary>
     public HashSet<string> Messaged { get; set; } = [];
 

@@ -10,6 +10,7 @@ Finds players without a Free Company tag on your world and lets you send each of
 - **Level and status**: the list shows New Adventurer, Returner, and Mentor status. Player Search doesn't report level, so level is shown only for players who have been near you.
 - Search results the game marks as from another server are skipped, because the game doesn't send their FC tag.
 - **New/returning first**: New Adventurers and Returners are sorted to the top, and can be shown on their own.
+- **Recently seen only**: players not seen in a Player Search or nearby within the last 20 minutes (adjustable) are hidden, since they may have logged off. Press **Refresh** to re-run your search and bring back those still online.
 - **Refused players**: players whose answer is **No** are hidden from the Players list by default ("Hide players who said no"), so the list only shows people still worth messaging. They stay in the Replies tab.
 - **Free trials**: players with the Trial Adventurer status are left out, because free trial accounts can't join a Free Company.
 - **Tells**: each row has a **Tell** button that sends one `/tell Name@World <your message>`. `{name}` and `{first}` in the message are replaced. You can write up to 5 messages; each tell uses the next one in turn. A cooldown (minimum 3 s) applies between tells, and messaged players are remembered so nobody is messaged twice.
